@@ -13,32 +13,42 @@ var allStatements = [];
 // read each file in dir and store as one text?
 const dir = 'D:/Projects/recurringCharges/statements/';
 
-fs.readdir(dir, (err, files) => {    
+fs.readdir(dir, async (err, files) => {    
     if (err) {
         console.error("Could not list the directory.", err);
         process.exit(1);
     } else {
-        files.forEach((filename, index) => {
-            // ! for smaller source data
-            // if (index === 0) {
+        try {
+
+            // Collect all file processing promises
+            const filePromises = files.map(async (filename) => {
                 var file = dir + filename;
-                let dataBuffer = fs.readFileSync(file);
-                pdf(dataBuffer).then(function(data) {
-                    var debits = takeDebits(data.text);
-                    var entries = takeEntries(debits);
-                    entries = formatEntries(entries);
-                    var statement = objectifier(entries);
-                    allStatements.push(...statement);
-                }).then(function(){
-                    allStatements.sort(sortByDate);
-                    // console.dir(allStatements, { depth: null, maxArrayLength: null });
-                    var statements = allStatements.slice();
-                    statements = pullExplicitRecurring(statements);
-                    console.dir(recurring, { depth: null, maxArrayLength: null });
-                    console.dir(statements, { depth: null, maxArrayLength: null });
-                });
-            // }
-        });
+                const dataBuffer = fs.readFileSync(file);
+                const data = await pdf(dataBuffer);
+                return data.text;
+            });
+
+            // Wait for all files to be processed
+            const texts = await Promise.all(filePromises);
+
+            var debits = texts.map(takeDebits).flat();
+            var entries = debits.map(takeEntries).flat();
+
+            entries = formatEntries(entries);
+            var statement = objectifier(entries);
+            allStatements.push(...statement);
+            
+            allStatements.sort(sortByDate);
+            var statements = allStatements.slice();
+
+            statements = pullExplicitRecurring(statements);
+
+            console.dir(recurring, { depth: null, maxArrayLength: null });
+            console.dir(statements, { depth: null, maxArrayLength: null });
+
+        } catch (err) {
+            console.error("Error processing PDF files:", err);
+        }
     }    
 });
 
@@ -187,6 +197,9 @@ function removeEntry(arr, index) {
 function pullExplicitRecurring(statements) {
     statements.forEach((entry,i) => {
         if (entry.desc.toLowerCase().match(/recurring/)) {
+            // console.log('RECURRING: ');
+            // console.dir(entry);
+            // console.log('\n');
             recurring.explicit.push(entry);
             removeEntry(statements, i);
         }
